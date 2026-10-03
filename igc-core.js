@@ -74,6 +74,19 @@
     var n = t.length;
     if (n < 200) throw new Error('有效 B 记录太少 (' + n + ')');
 
+    /* 气压高度无效(恒0/恒定)时回退 GPS 高度 */
+    var altSrc = '气压', i, k;
+    (function () {
+      var mn = Infinity, mx = -Infinity, gm = Infinity, gx = -Infinity, g = flt.galt;
+      for (i = 0; i < n; i++) {
+        if (palt[i] < mn) mn = palt[i];
+        if (palt[i] > mx) mx = palt[i];
+        if (g[i] < gm) gm = g[i];
+        if (g[i] > gx) gx = g[i];
+      }
+      if (mx - mn < 1 && gx - gm > 10) { palt = Float64Array.from(g); altSrc = 'GPS'; }
+    })();
+
     var lat0 = 0, lon0 = 0, i, k;
     for (i = 0; i < n; i++) { lat0 += lat[i]; lon0 += lon[i]; }
     lat0 /= n; lon0 /= n;
@@ -169,7 +182,7 @@
 
     return {
       t: t, lat: lat, lon: lon, x: X, y: Y, palt: palt, galt: flt.galt,
-      glider: flt.glider,
+      glider: flt.glider, altSrc: altSrc,
       v10: v10, vario: vario, turn: turn, inflight: inflight, circling: circling,
       thermals: thermals, glideWindows: gw,
       b30: b30.v, k30: b30.k, b60: b60.v, k60: b60.k, b300: b300.v, k300: b300.k,
