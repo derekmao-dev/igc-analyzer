@@ -44,6 +44,9 @@
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 11px; }
   .card h3 { margin: 0; padding: 10px 14px 8px; font-size: 14px; border-bottom: 1px solid var(--line); }
   .card h3 .hint { color: var(--sub); font-weight: 400; font-size: 12px; margin-left: 6px; }
+  .altbadge { float: right; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 20px; margin-left: 8px; }
+  .altbadge.baro { background: #e7f3ec; color: #2e8b57; }
+  .altbadge.gps { background: #fdf0e3; color: #c07a17; }
   .card .body { padding: 10px 12px; }
   canvas { display: block; width: 100%; }
   #tsCanvas { height: 380px; }
@@ -134,7 +137,8 @@
     <div id="statCards"></div>
 
     <div class="card">
-      <h3>高度 / 地速 / 爬升率 <span class="hint">滚轮缩放 · 拖动平移 · 双击复位 · 悬停查值</span></h3>
+      <h3>高度 / 地速 / 爬升率 <span class="hint">滚轮缩放 · 拖动平移 · 双击复位 · 悬停查值</span>
+        <span id="altBadge" class="altbadge" hidden></span></h3>
       <div class="cwrap" id="tsWrap"><canvas id="tsCanvas" height="380"></canvas><div class="tip"></div></div>
     </div>
 
@@ -167,7 +171,7 @@
 
 <div id="toast"></div>
 
-<script src="igc-core.js?v=2"></script>
+<script src="igc-core.js?v=3"></script>
 <script>
 'use strict';
 /* ================================================================ 工具 */
@@ -669,6 +673,15 @@ function selName() { return app.sel >= 0 ? app.flights[app.sel].name : ''; }
 function renderStats() {
   const r = selRes(); if (!r) return;
   const s = IGCCore.summary(r);
+  const badge = $('#altBadge');
+  badge.hidden = false;
+  if (r.altSrc === 'GPS') {
+    badge.textContent = 'GPS 高度（无气压数据）';
+    badge.className = 'altbadge gps';
+  } else {
+    badge.textContent = '高度来源：气压计';
+    badge.className = 'altbadge baro';
+  }
   const totalTurns = r.thermals.reduce((a, t) => a + t.turns, 0);
   const diams = r.thermals.map(t => t.radius * 2).filter(d => isFinite(d));
   const meanDiam = diams.length ? diams.reduce((a, b) => a + b, 0) / diams.length : NaN;
