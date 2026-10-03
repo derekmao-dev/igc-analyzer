@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IGC 飞行分析</title>
+<style>
+  :root {
+    --alt: #1a4d8f; --spd: #e6821e; --var: #2e8b57;
+    --right: #d94f4f; --left: #4f7bd9;
+    --bg: #f3f5f7; --card: #fff; --line: #e4e8ec; --txt: #1f2937; --sub: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+         background: var(--bg); color: var(--txt); }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px;
+           background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+  header .logo { font-size: 19px; font-weight: 700; }
+  header .sub { color: var(--sub); font-size: 12.5px; }
+  header .sp { flex: 1; }
+  .btn { display: inline-block; padding: 7px 14px; background: var(--alt); color: #fff;
+         border-radius: 7px; cursor: pointer; font-size: 13.5px; user-select: none; }
+  .btn:hover { background: #164070; }
+  .btn.ghost { background: #eef2f6; color: var(--txt); }
+  .btn.ghost:hover { background: #e0e7ee; }
+  .btn.mini { padding: 3px 10px; font-size: 12px; }
+
+  #dropOverlay { position: fixed; inset: 0; background: rgba(26,77,143,.12); z-index: 99;
+                 display: none; align-items: center; justify-content: center; pointer-events: none; }
+  #dropOverlay.on { display: flex; }
+  #dropOverlay div { background: var(--card); padding: 26px 44px; border-radius: 14px;
+                     font-size: 18px; box-shadow: 0 6px 30px rgba(0,0,0,.15); }
+
+  #empty { margin: 60px auto; max-width: 620px; text-align: center; }
+  #empty .box { border: 2.5px dashed #b9c6d4; border-radius: 16px; padding: 56px 30px;
+                background: var(--card); cursor: pointer; }
+  #empty .box:hover { border-color: var(--alt); background: #f7fafd; }
+  #empty h2 { margin: 0 0 8px; }
+  #empty p { color: var(--sub); margin: 4px 0; font-size: 13.5px; }
+
+  #app { display: flex; gap: 14px; padding: 14px 18px; align-items: flex-start; }
+  #app[hidden] { display: none; }
+  aside { width: 265px; flex: none; display: flex; flex-direction: column; gap: 12px; position: sticky; top: 62px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 11px; }
+  .card h3 { margin: 0; padding: 10px 14px 8px; font-size: 14px; border-bottom: 1px solid var(--line); }
+  .card h3 .hint { color: var(--sub); font-weight: 400; font-size: 12px; margin-left: 6px; }
+  .card .body { padding: 10px 12px; }
+  canvas { display: block; width: 100%; }
+  #tsCanvas { height: 380px; }
+  #mapCanvas { height: 430px; }
+  #histCanvas { height: 230px; }
+  #barCanvas { height: 210px; }
+  .fitem { padding: 9px 12px; cursor: pointer; border-bottom: 1px solid var(--line); position: relative; }
+  .fitem:last-child { border-bottom: none; }
+  .fitem:hover { background: #f4f7fa; }
+  .fitem.active { background: #eaf2fb; box-shadow: inset 3px 0 0 var(--alt); }
+  .fitem .fn { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 18px; }
+  .fitem .fm { font-size: 12px; color: var(--sub); margin-top: 2px; }
+  .fitem .fg { font-size: 11px; color: var(--sub); margin-top: 1px; }
+  .fitem .del { position: absolute; right: 8px; top: 9px; color: #b6bfc9; font-size: 15px;
+                line-height: 1; padding: 3px; border-radius: 5px; display: none; }
+  .fitem:hover .del { display: block; }
+  .fitem .del:hover { color: var(--right); background: #fff; }
+  .cmpItem { padding: 7px 12px; cursor: pointer; border-bottom: 1px solid var(--line); }
+  .cmpItem:last-child { border-bottom: none; }
+  .cmpItem:hover { background: #f4f7fa; }
+  .cmpItem.sel { background: #eaf2fb; box-shadow: inset 3px 0 0 var(--alt); }
+  .cmpItem .fn { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmpItem .fm { font-size: 11.5px; color: var(--sub); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  #detail { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  #statCards { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 9px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px 8px; }
+  .stat .v { font-size: 17px; font-weight: 700; margin-top: 1px; }
+  .stat .v small { font-size: 11.5px; color: var(--sub); font-weight: 400; }
+  .stat .v.vtxt { font-size: 13.5px; line-height: 1.35; padding-top: 2px; }
+  .stat .k { font-size: 11.5px; color: var(--sub); }
+  .stat.hl .v { color: var(--alt); }
+
+  .cwrap { position: relative; }
+  canvas { display: block; width: 100%; }
+  .tip { position: absolute; background: rgba(28,36,46,.93); color: #fff; padding: 7px 10px;
+         border-radius: 7px; font-size: 12px; line-height: 1.55; pointer-events: none;
+         display: none; z-index: 5; white-space: nowrap; box-shadow: 0 3px 12px rgba(0,0,0,.25); }
+  .msg { color: var(--sub); text-align: center; padding: 26px 10px; font-size: 13px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 1100px) { .row2 { grid-template-columns: 1fr; } aside { display: none; } }
+
+  table.data { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.data th, table.data td { padding: 4px 7px; text-align: right; border-bottom: 1px solid #eef1f4; }
+  table.data th:first-child, table.data td:first-child { text-align: left; }
+  table.data th { color: var(--sub); font-weight: 500; position: sticky; top: 0; background: var(--card); }
+  table.data tbody tr { cursor: pointer; }
+  table.data tbody tr:hover { background: #f4f7fa; }
+  table.data tr.sel { background: #eaf2fb; }
+  .tscroll { max-height: 300px; overflow: auto; }
+
+  footer { color: var(--sub); font-size: 12px; padding: 8px 18px 22px; line-height: 1.7; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #b3261e;
+           color: #fff; padding: 9px 18px; border-radius: 8px; font-size: 13px; display: none; z-index: 100; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🪂 IGC 飞行分析</div>
+  <div class="sub">速度 · 滑翔比 · 盘升效率 —— 纯本地解析，文件不会上传</div>
+  <div class="sp"></div>
+  <label class="btn">＋ 打开 IGC 文件<input type="file" id="fileInput" multiple accept=".igc" hidden></label>
+</header>
+
+<div id="dropOverlay"><div>松开即可导入 IGC 文件</div></div>
+
+<div id="empty">
+  <div class="box" id="emptyBox">
+    <h2>把 .igc 飞行日志拖到这里</h2>
+    <p>支持多选，可对比多次飞行；所有计算都在浏览器本地完成</p>
+    <p>指标：10 秒平滑地速 · 30 秒直线窗口滑翔比 · 360° 盘升自动检测与逐气泡效率</p>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <aside>
+    <div class="card">
+      <h3>飞行列表</h3>
+      <div id="flightList"></div>
+    </div>
+    <div class="card" id="compare" hidden>
+      <h3>飞行对比</h3>
+      <div id="compareList"></div>
+    </div>
+  </aside>
+
+  <section id="detail">
+    <div id="statCards"></div>
+
+    <div class="card">
+      <h3>高度 / 地速 / 爬升率 <span class="hint">滚轮缩放 · 拖动平移 · 双击复位 · 悬停查值</span></h3>
+      <div class="cwrap" id="tsWrap"><canvas id="tsCanvas" height="380"></canvas><div class="tip"></div></div>
+    </div>
+
+    <div class="card">
+      <h3>飞行轨迹 <span class="hint">颜色=爬升率，黑线=盘升段；滚轮缩放 · 拖动平移 · 双击复位</span></h3>
+      <div class="cwrap" id="mapWrap"><canvas id="mapCanvas" height="430"></canvas><div class="tip"></div></div>
+    </div>
+
+    <div class="row2">
+      <div class="card">
+        <h3>滑翔比分布 <span class="hint">30 秒直线窗口，仅净下降段（对地，含风）</span></h3>
+        <div class="cwrap" id="histWrap"><canvas id="histCanvas" height="230"></canvas><div class="tip"></div></div>
+        <div class="body" style="padding-top:0;"><div id="polarTable"></div></div>
+      </div>
+      <div class="card">
+        <h3>盘升（360° 热气泡） <span class="hint">点击柱/行可联动定位</span>
+          <span style="float:right;"><button class="btn ghost mini" id="exportCsv">导出 CSV</button></span></h3>
+        <div class="cwrap" id="barWrap"><canvas id="barCanvas" height="210"></canvas><div class="tip"></div></div>
+        <div class="tscroll"><table class="data" id="thermalTable"></table></div>
+      </div>
+    </div>
+
+    <footer>
+      指标口径：地速 = GPS 位移 10 秒平滑（对地，含风）；爬升率 = 气压高度 10 秒回归斜率；
+      滑翔比 = 30 秒直线窗口（航向变化 ≤60°）水平距离 ÷ 掉高，仅统计净下降 ≥15 m 段；
+      盘升 = 转弯率 &gt;5°/s 持续且累计航向 ≥270°；半径 = 地速 ÷ 角速度；风由盘旋漂移近似反推。
+    </footer>
+  </section>
+</div>
+
+<div id="toast"></div>
+
+<script src="igc-core.js?v=2"></script>
+<script>
+'use strict';
+/* ================================================================ 工具 */
+const $ = (s) => document.querySelector(s);
+const TZ = 8 * 3600;
+function hm(t) {                       // 当天秒数 -> HH:MM (UTC+8)
+  const s = Math.round(t) + TZ, h = Math.floor(s / 3600) % 24, m = Math.floor(s / 60) % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+function hms(sec) {
+  sec = Math.round(sec);
+  return `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+}
+function niceTicks(min, max, count) {
+  const span = max - min;
+  if (!(span > 0) || !isFinite(span)) return [min];
+  const step0 = span / Math.max(1, count);
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  let step = 10 * mag;
+  for (const m of [1, 2, 2.5, 5, 10]) if (step0 <= m * mag) { step = m * mag; break; }
+  const out = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + span * 1e-6; v += step)
+    out.push(Math.abs(v) < step * 1e-6 ? 0 : v);
+  return out;
+}
+function timeTicks(t0, t1, count) {
+  const span = t1 - t0, step0 = span / Math.max(1, count);
+  const steps = [60, 120, 300, 600, 900, 1800, 3600, 7200, 10800];
+  let step = steps[steps.length - 1];
+  for (const s of steps) if (step0 <= s) { step = s; break; }
+  const out = [];
+  for (let v = Math.ceil(t0 / step) * step; v <= t1; v += step) out.push(v);
+  return out;
+}
+/* coolwarm 风格: -2.5 深蓝 -> 0 浅灰 -> +3 红 */
+function varioColor(v) {
+  v = Math.max(-2.5, Math.min(3, v));
+  let t, a, b;
+  if (v <= 0) { t = -v / 2.5; a = [222, 224, 228]; b = [59, 76, 192]; }
+  else { t = v / 3; a = [222, 224, 228]; b = [180, 4, 38]; }
+  const c = a.map((x, i) => Math.round(x + (b[i] - x) * t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function setupCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+function fmt(x, d = 1) {
+  return x === null || x === undefined || isNaN(x) ? '—' : (+x).toFixed(d).replace(/\.0+$/, d ? '' : '');
+}
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500);
+}
+
+/* 通用图表基类: 画布尺寸/提示框/指针交互 */
+class Chart {
+  constructor(wrapSel) {
+    this.wrap = $(wrapSel);
+    this.cv = this.wrap.querySelector('canvas');
+    this.tip = this.wrap.querySelector('.tip');
+    this.drag = null;
+    this.cv.addEventListener('mousemove', e => this.onMove(e));
+    this.cv.addEventListener('mouseleave', () => { this.hideTip(); this.hover = null; this.draw(); });
+    this.cv.addEventListener('mousedown', e => { this.drag = { x: e.offsetX, y: e.offsetY, moved: false }; });
+    window.addEventListener('mouseup', () => { this.drag = null; });
+    this.cv.addEventListener('wheel', e => this.onWheel(e), { passive: false });
+    this.cv.addEventListener('dblclick', () => this.resetView && this.resetView());
+  }
+  ctx() { return setupCanvas(this.cv); }
+  showTip(html, x, y) {
+    const t = this.tip; t.innerHTML = html; t.style.display = 'block';
+    const w = this.wrap.clientWidth, tw = t.offsetWidth, th = t.offsetHeight;
+    t.style.left = Math.min(Math.max(4, x + 14), w - tw - 6) + 'px';
+    t.style.top = Math.max(2, Math.min(y + 12, this.cv.clientHeight - th - 4)) + 'px';
+  }
+  hideTip() { this.tip.style.display = 'none'; }
+  onWheel(e) {
+    e.preventDefault();
+    this.wheelZoom(e.offsetX, e.offsetY, Math.pow(1.0015, -e.deltaY));
+    this.draw();
+  }
+  panBy(dx, dy) {}
+  wheelZoom() {}
+  onMove(e) {
+    if (this.drag) {
+      const dx = e.offsetX - this.drag.x, dy = e.offsetY - this.drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) { this.drag.moved = true; this.panBy(dx, dy); }
+      this.drag.x = e.offsetX; this.drag.y = e.offsetY;
+      return;
+    }
+    this.hoverAt(e.offsetX, e.offsetY);
+  }
+}
+
+/* ================================================================ 应用状态 */
+const app = { flights: [], sel: -1, hoverTh: -1, selTh: -1 };
+
+/* ================================================================ 时间序列 */
+class TimeSeries extends Chart {
+  constructor() {
+    super('#tsWrap');
+    this.panels = [
+      { key: 'palt', label: '高度 m', color: '#1a4d8f' },
+      { key: 'v10kmh', label: '地速 km/h', color: '#e6821e' },
+      { key: 'vario', label: '爬升率 m/s', color: '#2e8b57' },
+    ];
+  }
+  setRes(res) {
+    this.res = res;
+    this.t0 = res.t[0]; this.t1 = res.t[res.t.length - 1];
+    this.v0 = this.t0; this.v1 = this.t1;
+  }
+  resetView() { this.v0 = this.t0; this.v1 = this.t1; this.draw(); }
+  panBy(dx) {
+    const span = this.v1 - this.v0, d = -dx / this.cv.clientWidth * span;
+    let a = this.v0 + d, b = this.v1 + d;
+    if (a < this.t0) { a = this.t0; b = a + span; }
+    if (b > this.t1) { b = this.t1; a = b - span; }
+    this.v0 = a; this.v1 = b;
+    this.draw();
+  }
+  wheelZoom(x, y, f) {
+    const t = this.x2t(x);
+    let a = t - (t - this.v0) / f, b = t + (this.v1 - t) / f;
+    if (b - a < 30) { const c = (a + b) / 2; a = c - 15; b = c + 15; }
+    if (b - a > this.t1 - this.t0) { a = this.t0; b = this.t1; }
+    if (a < this.t0) { b += this.t0 - a; a = this.t0; }
+    if (b > this.t1) { a -= b - this.t1; b = this.t1; }
+    this.v0 = a; this.v1 = b;
+  }
+  x2t(x) { return this.v0 + x / this.cv.clientWidth * (this.v1 - this.v0); }
+  t2x(t) { return (t - this.v0) / (this.v1 - this.v0) * this.cv.clientWidth; }
+  draw() {
+    const ctx = this.ctx(), W = this.cv.clientWidth, H = this.cv.clientHeight;
+    if (!this.res) return;
+    ctx.clearRect(0, 0, W, H);
+    const r = this.res, n = r.t.length;
+    const i0 = Math.max(0, Math.floor(this.v0 - r.t[0])), i1 = Math.min(n - 1, Math.ceil(this.v1 - r.t[0]));
+    const ph = H / 3;
+    /* 盘升色块 */
+    for (let k = 0; k < r.thermals.length; k++) {
+      const th = r.thermals[k];
+      const xa = Math.max(0, this.t2x(th.t0)), xb = Math.min(W, this.t2x(th.t0 + th.dur));
+      if (xb < 0 || xa > W) continue;
+      ctx.fillStyle = k === app.selTh ? 'rgba(220,140,20,.30)'
+        : (th.right ? 'rgba(217,79,79,.13)' : 'rgba(79,123,217,.13)');
+      ctx.fillRect(xa, 0, xb - xa, H);
+      if (k === app.selTh) { ctx.strokeStyle = 'rgba(220,140,20,.8)'; ctx.strokeRect(xa, .5, xb - xa, H - 1); }
+    }
+    this.panels.forEach((p, pi) => {
+      const yTop = pi * ph;
+      /* 可见范围 y 极值 */
+      let lo = Infinity, hi = -Infinity;
+      for (let i = i0; i <= i1; i++) {
+        let v = p.key === 'v10kmh' ? r.v10[i] * 3.6 : r[p.key][i];
+        if (v === undefined || isNaN(v)) continue;
+        if (v < lo) lo = v; if (v > hi) hi = v;
+      }
+      if (!isFinite(lo)) { lo = 0; hi = 1; }
+      if (pi === 2) { const m = Math.max(2, Math.ceil(Math.max(-lo, hi) * 2) / 2); lo = -m; hi = m; }
+      else if (pi === 1) { lo = 0; }
+      else { const pad = (hi - lo) * .06 || 10; lo -= pad; hi += pad; }
+      const X0 = 44, X1 = W - 8, PW = X1 - X0;
+      const y2p = v => yTop + 6 + (hi - v) / (hi - lo) * (ph - 22);
+      /* 网格与刻度 */
+      ctx.font = '10.5px "Segoe UI", "Microsoft YaHei"';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      niceTicks(lo, hi, 4).forEach(tv => {
+        const y = y2p(tv);
+        ctx.strokeStyle = '#eef1f4'; ctx.beginPath(); ctx.moveTo(X0, y); ctx.lineTo(X1, y); ctx.stroke();
+        ctx.fillStyle = '#8b95a1'; ctx.fillText((Math.abs(tv) >= 100 ? tv.toFixed(0) : +tv.toFixed(1)), X0 - 5, y);
+      });
+      /* 数据线 */
+      const span = this.v1 - this.v0;
+      const stride = Math.max(1, Math.floor((i1 - i0) / (PW * 2)));
+      ctx.strokeStyle = p.color; ctx.lineWidth = pi === 0 ? 1.4 : 1.1;
+      ctx.beginPath();
+      let pen = false;
+      for (let i = i0; i <= i1; i += stride) {
+        const v = p.key === 'v10kmh' ? r.v10[i] * 3.6 : r[p.key][i];
+        if (v === undefined || isNaN(v) || (i && r.t[i] - r.t[i - stride] > 60)) { pen = false; continue; }
+        const x = this.t2x(r.t[i]), y = y2p(v);
+        if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      /* 面板标签 */
+      ctx.fillStyle = p.color; ctx.textAlign = 'left';
+      ctx.fillText(p.label, X0 + 4, yTop + 9);
+      if (pi < 2) { ctx.strokeStyle = '#e4e8ec'; ctx.beginPath(); ctx.moveTo(0, yTop + ph); ctx.lineTo(W, yTop + ph); ctx.stroke(); }
+    });
+    /* x 轴时间刻度 */
+    ctx.fillStyle = '#8b95a1'; ctx.textAlign = 'center';
+    timeTicks(this.v0, this.v1, W / 90).forEach(tv => {
+      const x = this.t2x(tv);
+      if (x < 30 || x > W - 10) return;
+      ctx.fillText(hm(tv), x, H - 8);
+      ctx.strokeStyle = '#eef1f4'; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H - 14); ctx.stroke();
+    });
+    /* 十字线 */
+    if (this.hoverI !== undefined && this.hoverI >= 0) {
+      const x = this.t2x(r.t[this.hoverI]);
+      ctx.strokeStyle = 'rgba(60,70,80,.45)'; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H - 14); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  hoverAt(x, y) {
+    if (!this.res) return;
+    const t = this.x2t(x), r = this.res;
+    /* 二分找最近样本 */
+    let a = 0, b = r.t.length - 1;
+    while (b - a > 1) { const m = (a + b) >> 1; if (r.t[m] < t) a = m; else b = m; }
+    const i = (t - r.t[a] < r.t[b] - t) ? a : b;
+    this.hoverI = i; this.draw();
+    let thK = -1;
+    for (let k = 0; k < r.thermals.length; k++)
+      if (r.t[i] >= r.thermals[k].t0 && r.t[i] <= r.thermals[k].t0 + r.thermals[k].dur) thK = k;
+    const v = r.vario[i];
+    const ss = String(Math.floor(r.t[i]) % 60).padStart(2, '0');
+    this.showTip(
+      `<b>${hm(r.t[i])}:${ss}</b><br>` +
+      `高度 ${fmt(r.palt[i], 0)} m<br>地速 ${fmt(r.v10[i] * 3.6, 1)} km/h<br>` +
+      `爬升率 ${isNaN(v) ? '—' : fmt(v, 2)} m/s` +
+      (thK >= 0 ? `<br><span style="color:#ffb0a0">盘升 #${thK + 1}（${r.thermals[thK].right ? '右' : '左'}盘）</span>` : ''),
+      x, y);
+  }
+}
+
+/* ================================================================ 轨迹图 */
+class MapChart extends Chart {
+  constructor() { super('#mapWrap'); }
+  setRes(res) {
+    this.res = res;
+    this.resetView();
+  }
+  resetView() {
+    const r = this.res; if (!r) return;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (let i = 0; i < r.x.length; i++) {
+      if (r.x[i] < x0) x0 = r.x[i]; if (r.x[i] > x1) x1 = r.x[i];
+      if (r.y[i] < y0) y0 = r.y[i]; if (r.y[i] > y1) y1 = r.y[i];
+    }
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const W = this.cv.clientWidth, H = this.cv.clientHeight;
+    this.scale = Math.min((W - 60) / Math.max(x1 - x0, 1), (H - 60) / Math.max(y1 - y0, 1));
+    this.cx = cx; this.cy = cy;
+    this.draw();
+  }
+  x2p(x) { return (x - this.cx) * this.scale + this.cv.clientWidth / 2; }
+  y2p(y) { return this.cv.clientHeight / 2 - (y - this.cy) * this.scale; }
+  p2x(px) { return (px - this.cv.clientWidth / 2) / this.scale + this.cx; }
+  p2y(py) { return (this.cv.clientHeight / 2 - py) / this.scale + this.cy; }
+  panBy(dx, dy) { this.cx -= dx / this.scale; this.cy += dy / this.scale; this.draw(); }
+  wheelZoom(x, y, f) {
+    const wx = this.p2x(x), wy = this.p2y(y);
+    this.scale = Math.max(1e-4, Math.min(50, this.scale * f));
+    this.cx = wx - (x - this.cv.clientWidth / 2) / this.scale;
+    this.cy = wy + (y - this.cv.clientHeight / 2) / this.scale;
+  }
+  draw() {
+    const ctx = this.ctx(), W = this.cv.clientWidth, H = this.cv.clientHeight;
+    ctx.clearRect(0, 0, W, H);
+    const r = this.res; if (!r) return;
+    /* 比例尺 */
+    const barM = niceTicks(0, W / this.scale / 3, 1)[1] || 1000;
+    const bx = 14, by = H - 16;
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.moveTo(bx, by); ctx.lineTo(bx + barM * this.scale, by); ctx.stroke();
+    ctx.fillStyle = '#555'; ctx.font = '11px "Segoe UI", "Microsoft YaHei"'; ctx.textAlign = 'left';
+    ctx.fillText(barM >= 1000 ? (barM / 1000) + ' km' : barM + ' m', bx + barM * this.scale + 6, by + 3);
+    /* 轨迹分段着色 */
+    ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    const seg = (x1, y1, x2, y2, color) => { ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+    for (let i = 1; i < r.x.length; i++) {
+      if (r.t[i] - r.t[i - 1] > 60) continue;
+      const px1 = this.x2p(r.x[i - 1]), py1 = this.y2p(r.y[i - 1]);
+      const px2 = this.x2p(r.x[i]), py2 = this.y2p(r.y[i]);
+      seg(px1, py1, px2, py2, varioColor(r.vario[i] || 0));
+      if (r.circling[i]) seg(px1, py1, px2, py2, 'rgba(30,30,30,.4)');
+    }
+    /* 起飞/降落 */
+    const marker = (i, color, tri) => {
+      const x = this.x2p(r.x[i]), y = this.y2p(r.y[i]);
+      ctx.fillStyle = color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      if (tri) { ctx.moveTo(x, y - 7); ctx.lineTo(x - 6, y + 5); ctx.lineTo(x + 6, y + 5); ctx.closePath(); }
+      else ctx.rect(x - 5, y - 5, 10, 10);
+      ctx.fill(); ctx.stroke();
+    };
+    marker(0, '#1e9e40', true); marker(r.x.length - 1, '#d43a3a', false);
+    ctx.fillStyle = '#555'; ctx.font = '11px "Segoe UI", "Microsoft YaHei"';
+    ctx.fillText('N ↑', W - 30, 18);
+    /* 悬停点 */
+    if (this.hoverI !== undefined && this.hoverI >= 0) {
+      const x = this.x2p(r.x[this.hoverI]), y = this.y2p(r.y[this.hoverI]);
+      ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, 4.5, 0, 7); ctx.stroke();
+    }
+  }
+  hoverAt(x, y) {
+    if (!this.res) return;
+    const r = this.res;
+    const wx = this.p2x(x), wy = this.p2y(y);
+    const rad = 25 / this.scale;
+    let best = -1, bd = rad * rad;
+    for (let i = 0; i < r.x.length; i += 1) {
+      const dx = r.x[i] - wx, dy = r.y[i] - wy, d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = i; }
+    }
+    this.hoverI = best; this.draw();
+    if (best < 0) { this.hideTip(); return; }
+    const v = r.vario[best];
+    this.showTip(`<b>${hm(r.t[best])}</b><br>高度 ${fmt(r.palt[best], 0)} m · 地速 ${fmt(r.v10[best] * 3.6, 1)} km/h<br>爬升率 ${isNaN(v) ? '—' : fmt(v, 2)} m/s`, x, y);
+  }
+}
+
+/* ================================================================ 滑翔比直方图 */
+class HistChart extends Chart {
+  constructor() { super('#histWrap'); }
+  setRes(res) {
+    this.res = res;
+    this.bins = new Array(32).fill(0);        // 0..16, 步长 0.5
+    this.res.glideWindows.forEach(g => {
+      const b = Math.floor(g.ld / 0.5);
+      if (b >= 0 && b < 32) this.bins[b]++;
+    });
+    const lds = this.res.glideWindows.map(g => g.ld);
+    this.med = lds.length ? medianOf(lds) : NaN;
+    this.p90 = lds.length ? pctlOf(lds, .9) : NaN;
+    this.hoverBin = -1;
+  }
+  draw() {
+    const ctx = this.ctx(), W = this.cv.clientWidth, H = this.cv.clientHeight;
+    ctx.clearRect(0, 0, W, H);
+    if (!this.res) return;
+    if (!this.res.glideWindows.length) {
+      ctx.fillStyle = '#8b95a1'; ctx.font = '13px "Microsoft YaHei"'; ctx.textAlign = 'center';
+      ctx.fillText('本次飞行没有有效滑翔窗口', W / 2, H / 2);
+      return;
+    }
+    const X0 = 36, X1 = W - 10, Y0 = H - 26, Y1 = 14;
+    const maxN = Math.max(...this.bins);
+    const x2p = v => X0 + v / 16 * (X1 - X0);
+    const n2y = n => Y0 - n / maxN * (Y0 - Y1);
+    ctx.font = '10.5px "Segoe UI", "Microsoft YaHei"';
+    niceTicks(0, maxN, 4).forEach(tv => {
+      const y = n2y(tv);
+      ctx.strokeStyle = '#eef1f4'; ctx.beginPath(); ctx.moveTo(X0, y); ctx.lineTo(X1, y); ctx.stroke();
+      ctx.fillStyle = '#8b95a1'; ctx.textAlign = 'right'; ctx.fillText(tv, X0 - 4, y);
+    });
+    for (let b = 0; b < 32; b++) {
+      if (!this.bins[b]) continue;
+      const xa = x2p(b * .5), xb = x2p((b + 1) * .5);
+      ctx.fillStyle = this.hoverBin === b ? '#5b9bd5' : '#3b7dbf';
+      ctx.fillRect(xa, n2y(this.bins[b]), xb - xa - .5, Y0 - n2y(this.bins[b]));
+    }
+    ctx.textAlign = 'center'; ctx.fillStyle = '#8b95a1';
+    for (let v = 0; v <= 16; v += 2) ctx.fillText(v, x2p(v), Y0 + 13);
+    ctx.fillText('滑翔比', (X0 + X1) / 2, H - 3);
+    const line = (v, color, dash, label) => {
+      if (isNaN(v)) return;
+      ctx.strokeStyle = color; ctx.setLineDash(dash); ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(x2p(v), Y1); ctx.lineTo(x2p(v), Y0); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.fillText(label, x2p(v) + 3, Y1 + 8);
+    };
+    line(this.med, '#c0392b', [], '中位 ' + fmt(this.med, 1));
+    line(this.p90, '#8e44ad', [4, 3], 'P90 ' + fmt(this.p90, 1));
+  }
+  hoverAt(x, y) {
+    if (!this.res || !this.res.glideWindows.length) return;
+    const X0 = 36, X1 = this.cv.clientWidth - 10;
+    const v = (x - X0) / (X1 - X0) * 16;
+    const b = Math.floor(v / .5);
+    this.hoverBin = (b >= 0 && b < 32) ? b : -1;
+    this.draw();
+    if (this.hoverBin < 0 || !this.bins[b]) { this.hideTip(); return; }
+    const tot = this.res.glideWindows.length;
+    this.showTip(`滑翔比 ${(b * .5).toFixed(1)}–${((b + 1) * .5).toFixed(1)}<br>${this.bins[b]} 个窗口（${(100 * this.bins[b] / tot).toFixed(1)}%）`, x, y);
+  }
+}
+function medianOf(a) {
+  const b = a.slice().sort((x, y) => x - y), m = b.length >> 1;
+  return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2;
+}
+function pctlOf(a, p) {
+  const b = a.slice().sort((x, y) => x - y);
+  const pos = (b.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return b[lo] + (b[hi] - b[lo]) * (pos - lo);
+}
+
+/* ================================================================ 盘升柱状图 */
+class BarChart extends Chart {
+  constructor() { super('#barWrap'); }
+  setRes(res) { this.res = res; this.fitY(); }
+  fitY() {
+    const th = this.res.thermals;
+    let lo = 0, hi = 0;
+    th.forEach(t => { lo = Math.min(lo, t.climb); hi = Math.max(hi, t.climb); });
+    if (this.res.b30 === this.res.b30) hi = Math.max(hi, this.res.b30);
+    hi = hi * 1.15 || 1; lo = lo * 1.15;
+    this.yLo = lo; this.yHi = hi;
+  }
+  resetView() { this.fitY(); this.draw(); }
+  panBy(dx, dy) {
+    const s = this.yHi - this.yLo, d = dy / this.cv.clientHeight * s;
+    this.yLo += d; this.yHi += d; this.draw();
+  }
+  wheelZoom(x, y, f) {
+    const cy = this.yLo + (1 - y / this.cv.clientHeight) * (this.yHi - this.yLo);
+    this.yLo = cy - (cy - this.yLo) / f; this.yHi = cy + (this.yHi - cy) / f;
+  }
+  y2p(v) { return (this.yHi - v) / (this.yHi - this.yLo) * (this.cv.clientHeight - 22) + 6; }
+  x2t(t) { return (t - this.res.t[0]) / (this.res.t[this.res.t.length - 1] - this.res.t[0]) * (this.cv.clientWidth - 52) + 46; }
+  draw() {
+    const ctx = this.ctx(), W = this.cv.clientWidth, H = this.cv.clientHeight;
+    ctx.clearRect(0, 0, W, H);
+    const r = this.res; if (!r) return;
+    if (!r.thermals.length) {
+      ctx.fillStyle = '#8b95a1'; ctx.font = '13px "Microsoft YaHei"'; ctx.textAlign = 'center';
+      ctx.fillText('本次飞行未检测到完整 360° 盘升', W / 2, H / 2);
+      return;
+    }
+    ctx.font = '10.5px "Segoe UI", "Microsoft YaHei"';
+    niceTicks(this.yLo, this.yHi, 4).forEach(tv => {
+      const y = this.y2p(tv);
+      ctx.strokeStyle = '#eef1f4'; ctx.beginPath(); ctx.moveTo(46, y); ctx.lineTo(W - 6, y); ctx.stroke();
+      ctx.fillStyle = '#8b95a1'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(+tv.toFixed(1), 42, y);
+    });
+    /* 零线 */
+    ctx.strokeStyle = '#c8cfd6'; ctx.beginPath();
+    ctx.moveTo(46, this.y2p(0)); ctx.lineTo(W - 6, this.y2p(0)); ctx.stroke();
+    /* 平均/最佳30s */
+    const cl = r.thermals.map(t => t.climb);
+    const mean = cl.reduce((a, b) => a + b, 0) / cl.length;
+    const hline = (v, color, dash, label) => {
+      if (v !== v || v > this.yHi || v < this.yLo) return;
+      ctx.strokeStyle = color; ctx.setLineDash(dash); ctx.beginPath();
+      ctx.moveTo(46, this.y2p(v)); ctx.lineTo(W - 6, this.y2p(v)); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(label, 50, this.y2p(v) - 3);
+    };
+    hline(mean, '#555', [2, 2], '平均 ' + fmt(mean, 2));
+    hline(r.b30, '#2e8b57', [5, 3], '最佳30s ' + fmt(r.b30, 2));
+    /* 柱 */
+    r.thermals.forEach((th, k) => {
+      const xa = this.x2t(th.t0), xb = this.x2t(th.t0 + th.dur);
+      const w = Math.max(xb - xa, 2);
+      const y0 = this.y2p(0), y1 = this.y2p(th.climb);
+      ctx.fillStyle = th.right ? '#d94f4f' : '#4f7bd9';
+      ctx.globalAlpha = (k === app.hoverTh || k === app.selTh) ? 1 : .75;
+      ctx.fillRect(xa, Math.min(y0, y1), w, Math.abs(y1 - y0) || 1);
+      ctx.globalAlpha = 1;
+      if (k === app.selTh) { ctx.strokeStyle = '#c07800'; ctx.strokeRect(xa, Math.min(y0, y1), w, Math.abs(y1 - y0) || 1); }
+    });
+    /* x 刻度 */
+    ctx.fillStyle = '#8b95a1'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    timeTicks(r.t[0], r.t[r.t.length - 1], W / 90).forEach(tv => {
+      const x = this.x2t(tv);
+      if (x < 52 || x > W - 12) return;
+      ctx.fillText(hm(tv), x, H - 4);
+    });
+  }
+  hoverAt(x, y) {
+    const r = this.res; if (!r || !r.thermals.length) return;
+    const t = (x - 46) / (this.cv.clientWidth - 52) * (r.t[r.t.length - 1] - r.t[0]) + r.t[0];
+    let best = -1;
+    r.thermals.forEach((th, k) => { if (t >= th.t0 - 2 && t <= th.t0 + th.dur + 2) best = k; });
+    if (best !== app.hoverTh) { app.hoverTh = best; this.draw(); if (best >= 0) thermalRowHover(best); }
+    if (best < 0) { this.hideTip(); return; }
+    const th = r.thermals[best];
+    this.showTip(`<b>#${best + 1} · ${hm(th.t0)}</b>（${th.right ? '右盘' : '左盘'}）<br>` +
+      `平均爬升 <b>${fmt(th.climb, 2)}</b> m/s · 最大 ${fmt(th.vbest, 2)}<br>` +
+      `爬升 ${fmt(th.gain, 0)} m · ${fmt(th.dur, 0)} s · ${fmt(th.turns, 1)} 圈<br>` +
+      `直径 ${fmt(th.radius * 2, 0)} m · 地速 ${fmt(th.spd * 3.6, 1)} km/h<br>` +
+      `估计风 ${fmt(th.wind, 1)} m/s · 来自 ${fmt(th.windFrom, 0)}°`, x, y);
+  }
+  onClick(x) {
+    if (app.hoverTh >= 0) selectThermal(app.hoverTh);
+  }
+}
+
+/* ================================================================ 渲染各区块 */
+const tsChart = new TimeSeries();
+const mapChart = new MapChart();
+const histChart = new HistChart();
+const barChart = new BarChart();
+barChart.cv.addEventListener('click', () => barChart.onClick());
+
+function selRes() { return app.sel >= 0 ? app.flights[app.sel].res : null; }
+function selName() { return app.sel >= 0 ? app.flights[app.sel].name : ''; }
+
+function renderStats() {
+  const r = selRes(); if (!r) return;
+  const s = IGCCore.summary(r);
+  const totalTurns = r.thermals.reduce((a, t) => a + t.turns, 0);
+  const diams = r.thermals.map(t => t.radius * 2).filter(d => isFinite(d));
+  const meanDiam = diams.length ? diams.reduce((a, b) => a + b, 0) / diams.length : NaN;
+  const cards = [
+    ['滑翔伞', r.glider || '未记录', '', false, true],
+    ['飞行时长', hms(s.dur), ''], ['航程', fmt(s.dist / 1000, 1), 'km'],
+    ['最大高度', fmt(s.altMax, 0), 'm'], ['总爬升', fmt(s.totalClimb, 0), 'm'],
+    ['最大地速', fmt(s.vMaxKmh, 0), 'km/h'],
+    ['滑翔比·中位', fmt(s.ldMed, 1), ''], ['滑翔比·P90', fmt(s.ldP90, 1), ''],
+    ['巡航地速', fmt(s.cruiseKmh, 0), 'km/h'],
+    ['最佳 30s 爬升', fmt(s.b30, 2), 'm/s', true], ['最佳 60s', fmt(s.b60, 2), 'm/s'],
+    ['最佳 5min', fmt(s.b300, 2), 'm/s'],
+    ['盘升次数', s.nThermals, '次'], ['总圈数', fmt(totalTurns, 0), '圈'],
+    ['平均直径', fmt(meanDiam, 0), 'm'],
+    ['平均盘升', fmt(s.meanClimb, 2), 'm/s'],
+    ['盘升时间', fmt(s.circPct, 0), '%'],
+  ];
+  $('#statCards').innerHTML = cards.map(([k, v, u, hl, txt]) =>
+    `<div class="stat${hl ? ' hl' : ''}"><div class="k">${k}</div><div class="v${txt ? ' vtxt' : ''}">${v}<small> ${u || ''}</small></div></div>`).join('');
+}
+
+function renderPolarTable() {
+  const bins = IGCCore.ldBySpeedBin(selRes());
+  if (!bins.filter(b => b.n >= 3).length) { $('#polarTable').innerHTML = ''; return; }
+  $('#polarTable').innerHTML = '<table class="data"><thead><tr><th>地速 km/h</th><th>窗口数</th><th>中位滑翔比</th></tr></thead><tbody>' +
+    bins.map(b => `<tr><td>${b.bin}</td><td>${b.n}</td><td>${b.n >= 3 ? fmt(b.ld, 1) : '—'}</td></tr>`).join('') +
+    '</tbody></table>';
+}
+
+function renderThermalTable() {
+  const r = selRes();
+  if (!r.thermals.length) { $('#thermalTable').innerHTML = ''; return; }
+  $('#thermalTable').innerHTML =
+    '<thead><tr><th>#</th><th>时间</th><th>时长s</th><th>爬升m</th><th>平均m/s</th><th>最大</th><th>方向</th><th>圈数</th><th>直径m</th><th>地速</th><th>风m/s</th><th>风向°</th></tr></thead><tbody>' +
+    r.thermals.map((th, k) =>
+      `<tr data-k="${k}"${k === app.selTh ? ' class="sel"' : ''}><td>${k + 1}</td><td>${hm(th.t0)}</td>` +
+      `<td>${fmt(th.dur, 0)}</td><td>${fmt(th.gain, 0)}</td><td><b>${fmt(th.climb, 2)}</b></td>` +
+      `<td>${fmt(th.vbest, 2)}</td><td>${th.right ? '右' : '左'}</td><td>${fmt(th.turns, 1)}</td>` +
+      `<td>${fmt(th.radius * 2, 0)}</td><td>${fmt(th.spd * 3.6, 0)}</td><td>${fmt(th.wind, 1)}</td><td>${fmt(th.windFrom, 0)}</td></tr>`).join('') +
+    '</tbody>';
+  $('#thermalTable').querySelectorAll('tr[data-k]').forEach(tr => {
+    tr.addEventListener('mouseenter', () => { app.hoverTh = +tr.dataset.k; barChart.draw(); });
+    tr.addEventListener('mouseleave', () => { app.hoverTh = -1; barChart.draw(); });
+    tr.addEventListener('click', () => selectThermal(+tr.dataset.k));
+  });
+}
+function thermalRowHover(k) {
+  const tr = $('#thermalTable').querySelector(`tr[data-k="${k}"]`);
+  if (tr) tr.style.background = '#f0f4f8';
+}
+function selectThermal(k) {
+  app.selTh = (app.selTh === k ? -1 : k);
+  barChart.draw(); tsChart.draw(); mapChart.draw();
+  const tr = $('#thermalTable').querySelector('.sel');
+  if (tr) tr.scrollIntoView({ block: 'nearest' });
+  if (app.selTh >= 0) {
+    const th = selRes().thermals[app.selTh];
+    tsChart.v0 = th.t0 - 30; tsChart.v1 = th.t0 + th.dur + 30; tsChart.draw();
+  }
+}
+
+function renderFlightList() {
+  $('#flightList').innerHTML = app.flights.map((f, i) => {
+    const d = f.res.date, ds = d ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}` : '';
+    return `<div class="fitem${i === app.sel ? ' active' : ''}" data-i="${i}">` +
+      `<div class="fn" title="${f.name}">${f.name}</div>` +
+      `<div class="fm">${ds} · ${hms(f.res.dur)} · ${fmt(f.res.distTotal / 1000, 1)} km</div>` +
+      (f.res.glider ? `<div class="fg">🪂 ${f.res.glider}</div>` : '') +
+      `<span class="del" data-del="${i}" title="移除">✕</span></div>`;
+  }).join('');
+  $('#flightList').querySelectorAll('.fitem').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.dataset.del !== undefined) return;
+      selectFlight(+el.dataset.i);
+    });
+  });
+  $('#flightList').querySelectorAll('.del').forEach(el => {
+    el.addEventListener('click', () => removeFlight(+el.dataset.del));
+  });
+  $('#compare').hidden = app.flights.length < 2;
+  if (app.flights.length >= 2) {
+    $('#compareList').innerHTML = app.flights.map((f, i) => {
+      const s = IGCCore.summary(f.res);
+      return `<div class="cmpItem${i === app.sel ? ' sel' : ''}" data-i="${i}">` +
+        `<div class="fn" title="${f.name}">${f.name.replace(/\.igc$/i, '')}</div>` +
+        `<div class="fm">${fmt(s.dist / 1000, 1)} km · 滑翔比 ${fmt(s.ldMed, 1)} · ` +
+        `30s ${fmt(s.b30, 2)} · 盘升 ${s.nThermals}</div></div>`;
+    }).join('');
+    $('#compareList').querySelectorAll('.cmpItem').forEach(el =>
+      el.addEventListener('click', () => selectFlight(+el.dataset.i)));
+  }
+}
+
+function selectFlight(i) {
+  app.sel = i; app.selTh = -1; app.hoverTh = -1;
+  const r = selRes();
+  tsChart.setRes(r); mapChart.setRes(r); histChart.setRes(r); barChart.setRes(r);
+  renderFlightList(); renderStats(); renderPolarTable(); renderThermalTable();
+  tsChart.draw(); mapChart.draw(); histChart.draw(); barChart.draw();
+}
+function removeFlight(i) {
+  app.flights.splice(i, 1);
+  if (app.sel >= app.flights.length) app.sel = app.flights.length - 1;
+  else if (app.sel > i) app.sel--;
+  if (app.sel < 0) { $('#app').hidden = true; $('#empty').style.display = ''; return; }
+  renderFlightList(); selectFlight(app.sel);
+}
+
+function addFiles(files) {
+  const igcs = [...files].filter(f => /\.igc$/i.test(f.name));
+  if (!igcs.length) { toast('请选择 .igc 文件'); return; }
+  let loaded = 0, lastErr = '';
+  Promise.all(igcs.map(f => f.arrayBuffer().then(buf => {
+    try {
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+      const flt = IGCCore.parseIGC(text);
+      const res = IGCCore.analyze(flt);
+      app.flights.push({ name: f.name, res });
+      loaded++;
+    } catch (err) { lastErr = `${f.name}: ${err.message}`; }
+  }))).then(() => {
+    if (!loaded) { toast('解析失败 —— ' + lastErr); return; }
+    if (lastErr) toast('部分文件失败: ' + lastErr);
+    $('#empty').style.display = 'none';
+    $('#app').hidden = false;
+    selectFlight(app.flights.length - 1);
+  });
+}
+
+/* ================================================================ 事件绑定 */
+$('#fileInput').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+$('#emptyBox').addEventListener('click', () => $('#fileInput').click());
+let dragCnt = 0;
+window.addEventListener('dragenter', e => { e.preventDefault(); dragCnt++; $('#dropOverlay').classList.add('on'); });
+window.addEventListener('dragleave', e => { e.preventDefault(); if (--dragCnt <= 0) { dragCnt = 0; $('#dropOverlay').classList.remove('on'); } });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => { e.preventDefault(); dragCnt = 0; $('#dropOverlay').classList.remove('on'); addFiles(e.dataTransfer.files); });
+
+$('#exportCsv').addEventListener('click', () => {
+  const r = selRes(); if (!r) return;
+  const rows = ['文件,开始时间,持续s,爬升m,平均爬升m/s,最大vario,方向,圈数,半径m,直径m,平均地速km/h,估计风速m/s,风向(来自°)'];
+  r.thermals.forEach(th => rows.push([
+    selName(), hm(th.t0), Math.round(th.dur), Math.round(th.gain), th.climb.toFixed(2),
+    th.vbest.toFixed(2), th.right ? '右' : '左', th.turns.toFixed(1), Math.round(th.radius),
+    Math.round(th.radius * 2),
+    (th.spd * 3.6).toFixed(1), th.wind.toFixed(1), Math.round(th.windFrom)
+  ].join(',')));
+  const blob = new Blob(['\ufeff' + rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'thermals_' + selName().replace(/\.igc$/i, '') + '.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+});
+
+window.addEventListener('resize', () => {
+  if (app.sel < 0) return;
+  tsChart.draw(); mapChart.draw(); histChart.draw(); barChart.draw();
+});
+
+/* ================================================================ 入口 */
+/* 开发辅助: http 环境下可用 ?file=xxx.igc 自动载入; file:// 双击打开时忽略 */
+const qp = new URLSearchParams(location.search);
+if (location.protocol.startsWith('http') && qp.get('file')) {
+  qp.getAll('file').forEach(f =>
+    fetch(f).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(text => {
+        const flt = IGCCore.parseIGC(text);
+        app.flights.push({ name: f.split('/').pop(), res: IGCCore.analyze(flt) });
+        $('#empty').style.display = 'none'; $('#app').hidden = false;
+        selectFlight(app.flights.length - 1);
+      })
+      .catch(err => toast('载入失败: ' + err.message)));
+}
+</script>
+</body>
+</html>
