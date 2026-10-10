@@ -171,7 +171,7 @@
 
 <div id="toast"></div>
 
-<script src="igc-core.js?v=3"></script>
+<script src="igc-core.js?v=4"></script>
 <script>
 'use strict';
 /* ================================================================ 工具 */
@@ -495,14 +495,16 @@ class MapChart extends Chart {
 }
 
 /* ================================================================ 滑翔比直方图 */
+/* 横轴上限与核心的 LD_CAP 保持一致(=20), 否则快翼的高滑翔比窗口会被静默丢掉 */
+const LD_HIST_MAX = 20, LD_BIN = 0.5, LD_NBINS = LD_HIST_MAX / LD_BIN;
 class HistChart extends Chart {
   constructor() { super('#histWrap'); }
   setRes(res) {
     this.res = res;
-    this.bins = new Array(32).fill(0);        // 0..16, 步长 0.5
+    this.bins = new Array(LD_NBINS).fill(0);     // 0..LD_HIST_MAX, 步长 LD_BIN
     this.res.glideWindows.forEach(g => {
-      const b = Math.floor(g.ld / 0.5);
-      if (b >= 0 && b < 32) this.bins[b]++;
+      const b = Math.floor(g.ld / LD_BIN);
+      if (b >= 0 && b < LD_NBINS) this.bins[b]++;
     });
     const lds = this.res.glideWindows.map(g => g.ld);
     this.med = lds.length ? medianOf(lds) : NaN;
@@ -520,7 +522,7 @@ class HistChart extends Chart {
     }
     const X0 = 36, X1 = W - 10, Y0 = H - 26, Y1 = 14;
     const maxN = Math.max(...this.bins);
-    const x2p = v => X0 + v / 16 * (X1 - X0);
+    const x2p = v => X0 + v / LD_HIST_MAX * (X1 - X0);
     const n2y = n => Y0 - n / maxN * (Y0 - Y1);
     ctx.font = '10.5px "Segoe UI", "Microsoft YaHei"';
     niceTicks(0, maxN, 4).forEach(tv => {
@@ -528,14 +530,14 @@ class HistChart extends Chart {
       ctx.strokeStyle = '#eef1f4'; ctx.beginPath(); ctx.moveTo(X0, y); ctx.lineTo(X1, y); ctx.stroke();
       ctx.fillStyle = '#8b95a1'; ctx.textAlign = 'right'; ctx.fillText(tv, X0 - 4, y);
     });
-    for (let b = 0; b < 32; b++) {
+    for (let b = 0; b < LD_NBINS; b++) {
       if (!this.bins[b]) continue;
-      const xa = x2p(b * .5), xb = x2p((b + 1) * .5);
+      const xa = x2p(b * LD_BIN), xb = x2p((b + 1) * LD_BIN);
       ctx.fillStyle = this.hoverBin === b ? '#5b9bd5' : '#3b7dbf';
       ctx.fillRect(xa, n2y(this.bins[b]), xb - xa - .5, Y0 - n2y(this.bins[b]));
     }
     ctx.textAlign = 'center'; ctx.fillStyle = '#8b95a1';
-    for (let v = 0; v <= 16; v += 2) ctx.fillText(v, x2p(v), Y0 + 13);
+    for (let v = 0; v <= LD_HIST_MAX; v += 2) ctx.fillText(v, x2p(v), Y0 + 13);
     ctx.fillText('滑翔比', (X0 + X1) / 2, H - 3);
     const line = (v, color, dash, label) => {
       if (isNaN(v)) return;
@@ -549,13 +551,13 @@ class HistChart extends Chart {
   hoverAt(x, y) {
     if (!this.res || !this.res.glideWindows.length) return;
     const X0 = 36, X1 = this.cv.clientWidth - 10;
-    const v = (x - X0) / (X1 - X0) * 16;
-    const b = Math.floor(v / .5);
-    this.hoverBin = (b >= 0 && b < 32) ? b : -1;
+    const v = (x - X0) / (X1 - X0) * LD_HIST_MAX;
+    const b = Math.floor(v / LD_BIN);
+    this.hoverBin = (b >= 0 && b < LD_NBINS) ? b : -1;
     this.draw();
     if (this.hoverBin < 0 || !this.bins[b]) { this.hideTip(); return; }
     const tot = this.res.glideWindows.length;
-    this.showTip(`滑翔比 ${(b * .5).toFixed(1)}–${((b + 1) * .5).toFixed(1)}<br>${this.bins[b]} 个窗口（${(100 * this.bins[b] / tot).toFixed(1)}%）`, x, y);
+    this.showTip(`滑翔比 ${(b * LD_BIN).toFixed(1)}–${((b + 1) * LD_BIN).toFixed(1)}<br>${this.bins[b]} 个窗口（${(100 * this.bins[b] / tot).toFixed(1)}%）`, x, y);
   }
 }
 function medianOf(a) {
@@ -646,7 +648,7 @@ class BarChart extends Chart {
     const t = (x - 46) / (this.cv.clientWidth - 52) * (r.t[r.t.length - 1] - r.t[0]) + r.t[0];
     let best = -1;
     r.thermals.forEach((th, k) => { if (t >= th.t0 - 2 && t <= th.t0 + th.dur + 2) best = k; });
-    if (best !== app.hoverTh) { app.hoverTh = best; this.draw(); if (best >= 0) thermalRowHover(best); }
+    if (best !== app.hoverTh) { app.hoverTh = best; this.draw(); thermalRowHover(best); }
     if (best < 0) { this.hideTip(); return; }
     const th = r.thermals[best];
     this.showTip(`<b>#${best + 1} · ${hm(th.t0)}</b>（${th.right ? '右盘' : '左盘'}）<br>` +
@@ -723,17 +725,20 @@ function renderThermalTable() {
       `<td>${fmt(th.radius * 2, 0)}</td><td>${fmt(th.spd * 3.6, 0)}</td><td>${fmt(th.wind, 1)}</td><td>${fmt(th.windFrom, 0)}</td></tr>`).join('') +
     '</tbody>';
   $('#thermalTable').querySelectorAll('tr[data-k]').forEach(tr => {
-    tr.addEventListener('mouseenter', () => { app.hoverTh = +tr.dataset.k; barChart.draw(); });
-    tr.addEventListener('mouseleave', () => { app.hoverTh = -1; barChart.draw(); });
+    tr.addEventListener('mouseenter', () => { app.hoverTh = +tr.dataset.k; barChart.draw(); thermalRowHover(+tr.dataset.k); });
+    tr.addEventListener('mouseleave', () => { app.hoverTh = -1; barChart.draw(); thermalRowHover(-1); });
     tr.addEventListener('click', () => selectThermal(+tr.dataset.k));
   });
 }
+/* 悬停高亮: 只保留当前行, 上次悬停的行要还原 (以前会一直留着底色) */
 function thermalRowHover(k) {
-  const tr = $('#thermalTable').querySelector(`tr[data-k="${k}"]`);
-  if (tr) tr.style.background = '#f0f4f8';
+  $('#thermalTable').querySelectorAll('tr[data-k]').forEach(tr => {
+    tr.style.background = (+tr.dataset.k === k) ? '#f0f4f8' : '';
+  });
 }
 function selectThermal(k) {
   app.selTh = (app.selTh === k ? -1 : k);
+  renderThermalTable();                    /* 重渲染, 让 .sel 行高亮跟上 app.selTh */
   barChart.draw(); tsChart.draw(); mapChart.draw();
   const tr = $('#thermalTable').querySelector('.sel');
   if (tr) tr.scrollIntoView({ block: 'nearest' });

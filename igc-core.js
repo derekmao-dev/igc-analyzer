@@ -20,6 +20,13 @@
   var GLIDE_HALF = 15, GLIDE_MIN_SINK = 15.0, GLIDE_MAX_HDG = 60.0, LD_CAP = 20.0;
 
   /* ---------------- 解析 ---------------- */
+  /* 严格整数解析: 只接受「空白 + 可选符号 + 纯数字」, 与 Python int() 同口径。
+     空字段、'0x1F4'、'1e5' 之类一律返回 NaN -> 该 B 记录被丢弃,
+     不会被当成 0 m 高度混进分析 (Python 端同样丢弃)。 */
+  function int10(s) {
+    return /^\s*[+-]?\d+\s*$/.test(s) ? parseInt(s, 10) : NaN;
+  }
+
   function parseIGC(text) {
     var lines = text.split(/\r\n|\r|\n/);
     var date = null, glider = '', rollover = 0, last = -1;
@@ -35,11 +42,11 @@
       }
       if (!glider && line.indexOf('HFGTYGLIDERTYPE:') === 0) glider = line.slice(16).trim();
       if (line.charAt(0) !== 'B' || line.length < 35) continue;
-      var hh = +line.substr(1, 2), mm = +line.substr(3, 2), ss = +line.substr(5, 2);
-      var la = +line.substr(7, 2) + (+line.substr(9, 2) + +line.substr(11, 3) / 1000) / 60;
-      var lo = +line.substr(15, 3) + (+line.substr(18, 2) + +line.substr(20, 3) / 1000) / 60;
-      var pa = +line.substr(25, 5), ga = +line.substr(30, 5);
-      if ([hh, mm, ss, la, lo, pa, ga].some(isNaN)) continue;
+      var hh = int10(line.substr(1, 2)), mm = int10(line.substr(3, 2)), ss = int10(line.substr(5, 2));
+      var la = int10(line.substr(7, 2)) + (int10(line.substr(9, 2)) + int10(line.substr(11, 3)) / 1000) / 60;
+      var lo = int10(line.substr(15, 3)) + (int10(line.substr(18, 2)) + int10(line.substr(20, 3)) / 1000) / 60;
+      var pa = int10(line.substr(25, 5)), ga = int10(line.substr(30, 5));
+      if ([hh, mm, ss, la, lo, pa, ga].some(function (v) { return isNaN(v); })) continue;
       if (line.charAt(14) === 'S') la = -la;
       if (line.charAt(23) === 'W') lo = -lo;
       if (line.charAt(24) !== 'A') continue;
@@ -166,12 +173,7 @@
         if (dp > 0) totalClimb += dp;
       }
     }
-    var dur = t[n - 1] - t[0], climbT = 0, glideT = 0;
-    for (i = 0; i < n; i++) {
-      if (!inflight[i] || isNaN(vario[i])) continue;
-      if (vario[i] > 0.2) climbT++;
-      else if (vario[i] < -0.2 && !circling[i]) glideT++;
-    }
+    var dur = t[n - 1] - t[0];
     var vMax = 0, altMax = -1e9, altMin = 1e9, segs = 1;
     for (i = 0; i < n; i++) {
       if (inflight[i] && v10[i] > vMax) vMax = v10[i];
@@ -187,7 +189,7 @@
       thermals: thermals, glideWindows: gw,
       b30: b30.v, k30: b30.k, b60: b60.v, k60: b60.k, b300: b300.v, k300: b300.k,
       distTotal: distTotal, straight: hav(lat[0], lon[0], lat[n - 1], lon[n - 1]),
-      totalClimb: totalClimb, dur: dur, climbT: climbT, glideT: glideT,
+      totalClimb: totalClimb, dur: dur,
       vMax: vMax, altMax: altMax, altMin: altMin, date: flt.date, nSegments: segs
     };
   }
